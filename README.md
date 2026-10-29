@@ -79,7 +79,22 @@ flutter build apk        # Android
 flutter build ipa        # iOS (macOS + Xcode gerekir)
 ```
 
-### Web tarayıcıda
+### Son kullanıcıya dağıtım (kurulumsuz, çift tıkla çalışır)
+
+```bash
+./tools/package_web.sh     # Flutter, Go ve zip gerekir
+```
+
+`dist/` klasöründe üç paket oluşur: `Finans-Windows.zip`, `Finans-macOS.zip`, `Finans-Linux.zip`.
+Her biri web sürümünü içinde taşıyan tek dosyalık bir başlatıcı (`tools/launcher`, Go) ve
+`KULLANIM.txt` içerir. Kullanıcı ZIP'i açıp `Finans.exe` (macOS'ta `.command`) dosyasına çift tıklar;
+bilgisayarda `http://127.0.0.1:8642` adresinde yerel bir sunucu açılır ve tarayıcı kendiliğinden
+gelir. Flutter, Python veya başka bir kurulum gerekmez; kurlar dışında internet de gerekmez.
+
+Veriler tarayıcıda bu adrese bağlı saklandığından port sabittir (8642). Yeni sürümde klasörü
+değiştirmek yeterlidir, veriler korunur.
+
+### Web tarayıcıda (geliştirici)
 
 ```bash
 flutter run -d chrome    # geliştirme: Chrome'da açar (yoksa: flutter run -d web-server)

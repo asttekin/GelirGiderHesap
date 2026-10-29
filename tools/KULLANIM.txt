@@ -1,0 +1,47 @@
+FİNANS — KURULUM VE KULLANIM
+============================
+
+Kurulum gerekmez. İnternet yalnızca döviz kurlarını güncellemek için kullanılır;
+uygulamanın geri kalanı çevrimdışı çalışır.
+
+WINDOWS
+-------
+1. ZIP dosyasına sağ tıklayıp "Tümünü ayıkla" deyin (ZIP'in içinden çalıştırmayın).
+2. "Finans.exe" dosyasına çift tıklayın.
+3. "Windows bilgisayarınızı korudu" uyarısı çıkarsa: "Ek bilgi" → "Yine de çalıştır".
+4. Uygulama varsayılan tarayıcınızda açılır.
+
+macOS
+-----
+1. ZIP dosyasına çift tıklayarak açın.
+2. Apple çipli Mac (M1, M2, M3, M4…): "Finans-AppleSilicon.command"
+   Intel işlemcili Mac: "Finans-Intel.command"
+   (Emin değilseniz:  → Bu Mac Hakkında → "Çip" satırına bakın.)
+3. İlk açılışta dosyaya SAĞ TIKLAYIP "Aç" deyin, çıkan uyarıda tekrar "Aç"a basın.
+   (Çift tıklamada "açılamıyor" uyarısı alırsanız: Sistem Ayarları →
+   Gizlilik ve Güvenlik → en altta "Yine de Aç".)
+4. Bir Terminal penceresi açılır ve uygulama tarayıcıda görünür.
+
+LINUX
+-----
+1. ZIP'i açın, terminalde klasöre girip:  ./Finans
+2. Uygulama varsayılan tarayıcıda açılır.
+
+KULLANIRKEN
+-----------
+- Açılan siyah pencere (Komut İstemi / Terminal) uygulamanın kendisidir;
+  kullandığınız sürece açık kalmalı. Kapatınca uygulama da kapanır.
+- Tarayıcı açılmazsa adres çubuğuna yazın:  http://127.0.0.1:8642
+- İsterseniz tarayıcıda "Uygulamayı yükle" / "Ana ekrana ekle" ile kısayol
+  oluşturabilirsiniz (yine de önce Finans'ı başlatmanız gerekir).
+
+VERİLERİNİZ HAKKINDA ÖNEMLİ
+---------------------------
+- Veriler bu bilgisayarda, tarayıcınızın içinde saklanır. İnternete gönderilmez.
+- Her zaman AYNI tarayıcıyı kullanın. Başka tarayıcıda (ör. Chrome yerine Edge)
+  veya gizli pencerede verileriniz görünmez.
+- Tarayıcı geçmişini / site verilerini temizlerseniz verileriniz silinir.
+- Düzenli yedek alın: Özet → ⚙ Ayarlar → "Yedek dosyası oluştur".
+  Yeni bilgisayarda veya tarayıcıda "Dosyadan geri yükle" ile geri alırsınız.
+- Yeni sürüm geldiğinde eski klasörü yenisiyle değiştirmeniz yeterli;
+  verileriniz tarayıcıda olduğu için korunur.
