@@ -12,6 +12,8 @@ import '../forms/contact_form.dart';
 import '../forms/planned_form.dart';
 import '../forms/txn_form.dart';
 import '../theme.dart';
+import '../../services/pdf_reports.dart';
+import '../../services/share_service.dart';
 import '../widgets/common.dart';
 
 /// Cari kartı: bakiye, iletişim bilgisi, ekstre ve planlı kalemler.
@@ -41,13 +43,45 @@ class ContactDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(c.name),
         actions: [
-          IconButton(
-            tooltip: 'Ekstreyi kopyala (CSV)',
-            icon: const Icon(Icons.copy_all_outlined),
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: _statementCsv(c, statement)));
-              toast(context, 'Ekstre panoya kopyalandı');
+          PopupMenuButton<String>(
+            tooltip: 'Ekstreyi dışa aktar',
+            icon: const Icon(Icons.ios_share),
+            onSelected: (v) async {
+              final name = 'cari-ekstre_${ShareService.safeName(c.name)}_${ShareService.stamp()}';
+              try {
+                switch (v) {
+                  case 'pdf':
+                    await ShareService.sharePdf(await PdfReports.statement(store: store, contact: c), '$name.pdf');
+                  case 'print':
+                    await ShareService.printPdf(() => PdfReports.statement(store: store, contact: c), name);
+                  case 'csvfile':
+                    await ShareService.shareCsv(_statementCsv(c, statement), '$name.csv', subject: c.name);
+                  case 'csv':
+                    await Clipboard.setData(ClipboardData(text: _statementCsv(c, statement)));
+                    if (context.mounted) toast(context, 'Ekstre panoya kopyalandı');
+                }
+              } catch (e) {
+                if (context.mounted) toast(context, 'Dışa aktarılamadı: $e');
+              }
             },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'pdf',
+                child: ListTile(leading: Icon(Icons.picture_as_pdf_outlined), title: Text('PDF ekstre paylaş / indir')),
+              ),
+              PopupMenuItem(
+                value: 'print',
+                child: ListTile(leading: Icon(Icons.print_outlined), title: Text('Yazdır / PDF önizle')),
+              ),
+              PopupMenuItem(
+                value: 'csvfile',
+                child: ListTile(leading: Icon(Icons.table_view_outlined), title: Text('CSV dosyası paylaş')),
+              ),
+              PopupMenuItem(
+                value: 'csv',
+                child: ListTile(leading: Icon(Icons.copy_all_outlined), title: Text('CSV kopyala')),
+              ),
+            ],
           ),
           IconButton(
             tooltip: 'Düzenle',

@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Döviz kurlarını internetten çekmek için -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="finans"
+        android:label="Finans"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

@@ -5,6 +5,10 @@ import 'package:provider/provider.dart';
 import '../../data/app_prefs.dart';
 import '../../data/demo_data.dart';
 import '../../data/finance_store.dart';
+import '../../data/rate_service.dart';
+import '../../logic/currency.dart';
+import '../../services/share_service.dart';
+import '../format.dart';
 import '../../models/models.dart';
 import '../category_icons.dart';
 import '../widgets/common.dart';
@@ -72,6 +76,8 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
+            const SectionHeader('Döviz kurları'),
+            const _RatesCard(),
             const SectionHeader('Veri'),
             Card(
               clipBehavior: Clip.antiAlias,
@@ -85,18 +91,34 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () => pushPage(context, const CategoriesScreen()),
                   ),
                   ListTile(
+                    leading: const Icon(Icons.save_alt),
+                    title: const Text('Yedek dosyası oluştur'),
+                    subtitle: const Text('JSON dosyasını paylaşın veya indirin (Drive, e-posta, Dosyalar…)'),
+                    onTap: () async {
+                      try {
+                        await ShareService.shareJson(store.exportJson(), 'finans-yedek_${ShareService.stamp()}.json');
+                      } catch (e) {
+                        if (context.mounted) toast(context, 'Yedek paylaşılamadı: $e');
+                      }
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.file_open_outlined),
+                    title: const Text('Dosyadan geri yükle'),
+                    subtitle: const Text('Daha önce oluşturulan .json yedek dosyasını seçin'),
+                    onTap: () => _importFile(context),
+                  ),
+                  ListTile(
                     leading: const Icon(Icons.backup_outlined),
-                    title: const Text('Yedeği kopyala'),
-                    subtitle: const Text('Tüm veriyi JSON olarak panoya kopyalar'),
+                    title: const Text('Yedeği panoya kopyala'),
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: store.exportJson()));
                       toast(context, 'Yedek panoya kopyalandı');
                     },
                   ),
                   ListTile(
-                    leading: const Icon(Icons.restore),
-                    title: const Text('Yedekten geri yükle'),
-                    subtitle: const Text('Kopyalanmış JSON yedeğini yapıştırın'),
+                    leading: const Icon(Icons.content_paste),
+                    title: const Text('Panodan geri yükle'),
                     onTap: () => _import(context),
                   ),
                   ListTile(
@@ -137,6 +159,25 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _importFile(BuildContext context) async {
+    final store = context.read<FinanceStore>();
+    try {
+      final raw = await ShareService.pickJsonFile();
+      if (raw == null || !context.mounted) return;
+      final ok = await confirm(
+        context,
+        title: 'Yedekten geri yükle',
+        message: 'Mevcut verinin yerini seçilen yedek alacak. Devam edilsin mi?',
+        action: 'Geri yükle',
+      );
+      if (!ok) return;
+      await store.importJson(raw);
+      if (context.mounted) toast(context, 'Yedek geri yüklendi');
+    } catch (e) {
+      if (context.mounted) toast(context, 'Geri yüklenemedi: geçersiz yedek dosyası');
+    }
   }
 
   Future<void> _import(BuildContext context) async {
@@ -313,6 +354,114 @@ class CategoriesScreen extends StatelessWidget {
           icon: icon,
           colorValue: color,
         ),
+      );
+    }
+  }
+}
+
+class _RatesCard extends StatelessWidget {
+  const _RatesCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<FinanceStore>();
+    final service = context.watch<RateService?>();
+    final r = store.rates;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (final c in ['USD', 'EUR'])
+            ListTile(
+              leading: CircleAvatar(child: Text(currencySymbol(c))),
+              title: Text('1 $c = ${fmtRate(r.of(c))} ₺'),
+              subtitle: Text(currencyName(c)),
+            ),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: Text(r.source.isEmpty ? 'Kaynak bilinmiyor' : r.source),
+            subtitle: Text(
+              [
+                if (r.updatedAt != null)
+                  'Son güncelleme: ${fmtDate(r.updatedAt!)} '
+                      '${r.updatedAt!.hour.toString().padLeft(2, '0')}:${r.updatedAt!.minute.toString().padLeft(2, '0')}',
+                if (service?.lastError != null) service!.lastError!,
+                'Kurlar açılışta ve uygulama açıkken 30 dakikada bir otomatik güncellenir.',
+              ].join('\n'),
+              style: TextStyle(color: service?.lastError != null ? scheme.error : null),
+            ),
+            isThreeLine: true,
+          ),
+          OverflowBar(
+            alignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: () => _manual(context, r),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Elle gir'),
+              ),
+              if (service != null)
+                FilledButton.tonalIcon(
+                  onPressed: service.loading
+                      ? null
+                      : () async {
+                          final err = await service.refresh();
+                          if (context.mounted) toast(context, err ?? 'Kurlar güncellendi');
+                        },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Şimdi güncelle'),
+                ),
+              const SizedBox(width: 8),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _manual(BuildContext context, Rates r) async {
+    final usd = TextEditingController(text: fmtRate(r.usd));
+    final eur = TextEditingController(text: fmtRate(r.eur));
+    final key = GlobalKey<FormState>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Kurları elle gir'),
+        content: Form(
+          key: key,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (c, ctrl) in [('USD', usd), ('EUR', eur)])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: TextFormField(
+                    controller: ctrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(labelText: '1 $c = ? ₺'),
+                    validator: (v) => parseRate(v ?? '') == null ? 'Geçerli bir kur girin' : null,
+                  ),
+                ),
+              const Text('Bir sonraki otomatik güncellemede internetten alınan kur kullanılır.'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          FilledButton(
+            onPressed: () {
+              if (key.currentState!.validate()) Navigator.pop(ctx, true);
+            },
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && context.mounted) {
+      context.read<FinanceStore>().setRates(
+        Rates(usd: parseRate(usd.text)!, eur: parseRate(eur.text)!, updatedAt: DateTime.now(), source: 'Elle girildi'),
       );
     }
   }

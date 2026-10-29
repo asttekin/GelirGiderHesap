@@ -32,6 +32,9 @@ class Account {
   final int colorValue;
   final bool archived;
 
+  /// Para birimi kodu: `TRY`, `USD` veya `EUR`. Hesabın tüm tutarları bu birimdedir.
+  final String currency;
+
   const Account({
     required this.id,
     required this.name,
@@ -41,7 +44,10 @@ class Account {
     this.openingBalance = 0,
     this.colorValue = 0xFF3F51B5,
     this.archived = false,
+    this.currency = 'TRY',
   });
+
+  bool get isForeign => currency != 'TRY';
 
   Account copyWith({
     String? name,
@@ -51,6 +57,7 @@ class Account {
     int? openingBalance,
     int? colorValue,
     bool? archived,
+    String? currency,
   }) => Account(
     id: id,
     name: name ?? this.name,
@@ -60,6 +67,7 @@ class Account {
     openingBalance: openingBalance ?? this.openingBalance,
     colorValue: colorValue ?? this.colorValue,
     archived: archived ?? this.archived,
+    currency: currency ?? this.currency,
   );
 
   Map<String, Object?> toJson() => {
@@ -71,6 +79,7 @@ class Account {
     'openingBalance': openingBalance,
     'color': colorValue,
     'archived': archived,
+    'currency': currency,
   };
 
   factory Account.fromJson(Map<String, Object?> j) => Account(
@@ -82,6 +91,7 @@ class Account {
     openingBalance: (j['openingBalance'] as num?)?.toInt() ?? 0,
     colorValue: (j['color'] as num?)?.toInt() ?? 0xFF3F51B5,
     archived: (j['archived'] as bool?) ?? false,
+    currency: (j['currency'] as String?) ?? 'TRY',
   );
 }
 
@@ -207,8 +217,18 @@ class Txn {
   final String id;
   final TxnType type;
 
-  /// Her zaman pozitif (kuruş). Yönü [type] belirler.
+  /// Her zaman pozitif, hesabın para biriminde kuruş/sent. Yönü [type] belirler.
   final int amount;
+
+  /// [accountId] hesabının para birimi (kayıt anında kopyalanır).
+  final String currency;
+
+  /// İşlem anındaki kur: 1 birim [currency] = [rate] ₺. TL işlemlerde 1.
+  final double rate;
+
+  /// Farklı para birimli hesaplar arası transferde hedef hesaba geçen tutar
+  /// (hedef hesabın biriminde). `null` ise [amount] ile aynıdır.
+  final int? toAmount;
   final DateTime date;
   final String accountId;
 
@@ -232,12 +252,21 @@ class Txn {
     this.contactId,
     this.note = '',
     this.plannedId,
+    this.currency = 'TRY',
+    this.rate = 1,
+    this.toAmount,
   });
+
+  /// İşlemin işlem anındaki kurla ₺ karşılığı (kuruş).
+  int get tryAmount => currency == 'TRY' ? amount : (amount * rate).round();
 
   Map<String, Object?> toJson() => {
     'id': id,
     'type': type.name,
     'amount': amount,
+    'currency': currency,
+    'rate': rate,
+    'toAmount': toAmount,
     'date': date.toIso8601String(),
     'accountId': accountId,
     'toAccountId': toAccountId,
@@ -258,6 +287,9 @@ class Txn {
     contactId: j['contactId'] as String?,
     note: (j['note'] as String?) ?? '',
     plannedId: j['plannedId'] as String?,
+    currency: (j['currency'] as String?) ?? 'TRY',
+    rate: (j['rate'] as num?)?.toDouble() ?? 1,
+    toAmount: (j['toAmount'] as num?)?.toInt(),
   );
 }
 
@@ -335,6 +367,9 @@ class PlannedItem {
   final DateTime? endDate;
   final bool completed;
 
+  /// Tutarın para birimi.
+  final String currency;
+
   const PlannedItem({
     required this.id,
     required this.kind,
@@ -348,6 +383,7 @@ class PlannedItem {
     this.recurrence = Recurrence.none,
     this.endDate,
     this.completed = false,
+    this.currency = 'TRY',
   });
 
   PlannedItem copyWith({DateTime? dueDate, bool? completed}) => PlannedItem(
@@ -363,6 +399,7 @@ class PlannedItem {
     recurrence: recurrence,
     endDate: endDate,
     completed: completed ?? this.completed,
+    currency: currency,
   );
 
   /// Nakit akışına etkisi: tahsilat +, ödeme −.
@@ -381,6 +418,7 @@ class PlannedItem {
     'recurrence': recurrence.name,
     'endDate': endDate?.toIso8601String(),
     'completed': completed,
+    'currency': currency,
   };
 
   factory PlannedItem.fromJson(Map<String, Object?> j) => PlannedItem(
@@ -396,5 +434,6 @@ class PlannedItem {
     recurrence: _enumByName(Recurrence.values, j['recurrence'], Recurrence.none),
     endDate: _dateOrNull(j['endDate']),
     completed: (j['completed'] as bool?) ?? false,
+    currency: (j['currency'] as String?) ?? 'TRY',
   );
 }

@@ -55,9 +55,9 @@ class _PlannedScreenState extends State<PlannedScreen> {
     var inflow = 0, outflow = 0;
     for (final e in upcomingEvents(store.planned, today, today.add(const Duration(days: 30)))) {
       if (e.item.kind == PlannedKind.collection) {
-        inflow += e.item.amount;
+        inflow += store.plannedTry(e.item);
       } else {
-        outflow += e.item.amount;
+        outflow += store.plannedTry(e.item);
       }
     }
 

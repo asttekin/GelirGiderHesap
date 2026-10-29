@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../logic/currency.dart';
 import '../../logic/finance_math.dart';
 import '../format.dart';
 
@@ -14,9 +15,11 @@ class AmountField extends StatelessWidget {
     this.allowZero = false,
     this.autofocus = false,
     this.color,
+    this.currency = 'TRY',
   });
 
   final TextEditingController controller;
+  final String currency;
   final String label;
   final bool allowNegative;
   final bool allowZero;
@@ -32,7 +35,7 @@ class AmountField extends StatelessWidget {
     style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: color),
     decoration: InputDecoration(
       labelText: label,
-      prefixText: '₺ ',
+      prefixText: '${currencySymbol(currency)} ',
       prefixStyle: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: color),
       hintText: '0,00',
     ),

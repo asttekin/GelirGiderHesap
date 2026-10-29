@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'data/app_prefs.dart';
 import 'data/finance_store.dart';
+import 'data/rate_service.dart';
 import 'ui/home_shell.dart';
 import 'ui/theme.dart';
 
@@ -16,14 +17,18 @@ Future<void> main() async {
   final store = FinanceStore();
   final prefs = AppPrefs();
   await Future.wait([store.load(), prefs.load()]);
-  runApp(FinanceApp(store: store, prefs: prefs));
+  final rates = RateService(store)..start();
+  runApp(FinanceApp(store: store, prefs: prefs, rates: rates));
 }
 
 class FinanceApp extends StatelessWidget {
-  const FinanceApp({super.key, required this.store, required this.prefs});
+  const FinanceApp({super.key, required this.store, required this.prefs, this.rates});
 
   final FinanceStore store;
   final AppPrefs prefs;
+
+  /// Testlerde ağa çıkmamak için verilmeyebilir.
+  final RateService? rates;
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +36,7 @@ class FinanceApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider.value(value: store),
         ChangeNotifierProvider.value(value: prefs),
+        if (rates != null) ChangeNotifierProvider.value(value: rates!),
       ],
       child: Consumer<AppPrefs>(
         builder: (context, p, _) => MaterialApp(

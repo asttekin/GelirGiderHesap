@@ -50,8 +50,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final list = _filtered(store);
     var inc = 0, exp = 0;
     for (final t in list) {
-      if (t.type == TxnType.income) inc += t.amount;
-      if (t.type == TxnType.expense) exp += t.amount;
+      if (t.type == TxnType.income) inc += t.tryAmount;
+      if (t.type == TxnType.expense) exp += t.tryAmount;
     }
 
     // Güne göre grupla.
@@ -167,8 +167,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                 ),
                                 Money(
                                   e.value.fold<int>(0, (s, t) => s + switch (t.type) {
-                                    TxnType.income => t.amount,
-                                    TxnType.expense => -t.amount,
+                                    TxnType.income => t.tryAmount,
+                                    TxnType.expense => -t.tryAmount,
                                     TxnType.transfer => 0,
                                   }),
                                   signed: true,

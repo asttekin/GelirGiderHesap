@@ -14,6 +14,7 @@ import '../home_shell.dart';
 import '../theme.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
+import '../widgets/rates_bar.dart';
 import 'account_detail_screen.dart';
 import 'settings_screen.dart';
 
@@ -82,7 +83,7 @@ class _DashboardBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 1000;
-    const left = [_HeroCard(), _KpiRow(), _OverdueBanner(), _CashFlowCard(), _AccountsStrip()];
+    const left = [_HeroCard(), RatesBar(), _KpiRow(), _OverdueBanner(), _CashFlowCard(), _AccountsStrip()];
     const right = [_UpcomingCard(), _RecentCard()];
     return ContentWidth(
       child: wide
@@ -199,9 +200,9 @@ class _KpiRow extends StatelessWidget {
     var expIn = 0, expOut = 0;
     for (final e in events) {
       if (e.item.kind == PlannedKind.collection) {
-        expIn += e.item.amount;
+        expIn += store.plannedTry(e.item);
       } else {
-        expOut += e.item.amount;
+        expOut += store.plannedTry(e.item);
       }
     }
     final tiles = [
@@ -272,7 +273,13 @@ class _OverdueBanner extends StatelessWidget {
     final overdue = store.planned.where((p) => !p.completed && p.dueDate.isBefore(today)).toList();
 
     // Projeksiyonda bakiye eksiye düşüyor mu?
-    final proj = projectCashFlow(startBalance: store.totalCash, planned: store.planned, today: today, days: 60);
+    final proj = projectCashFlow(
+      startBalance: store.totalCash,
+      planned: store.planned,
+      today: today,
+      days: 60,
+      rates: store.rates,
+    );
     final firstNeg = proj.where((p) => p.balance < 0).firstOrNull;
 
     if (overdue.isEmpty && firstNeg == null) return const SizedBox.shrink();
@@ -284,7 +291,7 @@ class _OverdueBanner extends StatelessWidget {
             Icons.warning_amber_rounded,
             fc.expense,
             '${overdue.length} gecikmiş kalem',
-            'Toplam ${fmtMoney(overdue.fold<int>(0, (s, p) => s + p.amount))} vadesi geçti.',
+            'Toplam ${fmtMoney(overdue.fold<int>(0, (s, p) => s + store.plannedTry(p)))} vadesi geçti.',
             () => HomeShell.goTo(context, HomeShell.tabPlanned),
           ),
         if (overdue.isNotEmpty && firstNeg != null) const SizedBox(height: 10),
@@ -347,12 +354,14 @@ class _CashFlowCard extends StatelessWidget {
       store.txns,
       today.subtract(const Duration(days: 30)),
       today,
+      rates: store.rates,
     );
     final projection = projectCashFlow(
       startBalance: store.totalCash,
       planned: store.planned,
       today: today,
       days: 60,
+      rates: store.rates,
     );
     final end = projection.last.balance;
     final change = end - store.totalCash;
@@ -476,8 +485,9 @@ class _AccountsStrip extends StatelessWidget {
                           const Spacer(),
                           Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontWeight: FontWeight.w600)),
-                          Money(store.balanceOf(a), colored: store.balanceOf(a) < 0,
+                          Money(store.balanceOf(a), currency: a.currency, colored: store.balanceOf(a) < 0,
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                          if (a.isForeign) TryHint(store.tryBalanceOf(a), fontSize: 11),
                         ],
                       ),
                     ),

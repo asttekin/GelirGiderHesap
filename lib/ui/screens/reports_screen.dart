@@ -8,6 +8,8 @@ import '../../models/models.dart';
 import '../format.dart';
 import '../theme.dart';
 import '../widgets/charts.dart';
+import '../../services/pdf_reports.dart';
+import '../../services/share_service.dart';
 import '../widgets/common.dart';
 
 enum _Period { thisMonth, lastMonth, last3, thisYear, lastYear, custom }
@@ -85,13 +87,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final endMonth = range.end;
     final buckets = monthlyBuckets(store.txns, endMonth, 12);
 
-    final history = historicalBalance(store.accounts, store.txns, range.start, range.end);
+    final history = historicalBalance(store.accounts, store.txns, range.start, range.end, rates: store.rates);
     final today = dateOnly(DateTime.now());
     final projection = projectCashFlow(
       startBalance: store.totalCash,
       planned: store.planned,
       today: today,
       days: 90,
+      rates: store.rates,
     );
 
     final cards = <Widget>[
@@ -122,16 +125,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
           PopupMenuButton<String>(
             tooltip: 'Dışa aktar',
             icon: const Icon(Icons.ios_share),
-            onSelected: (v) {
-              final text = v == 'csv'
-                  ? _txnCsv(store, range)
-                  : _summaryText(store, report, range, expSlices, incSlices);
-              Clipboard.setData(ClipboardData(text: text));
-              toast(context, v == 'csv' ? 'İşlemler CSV olarak panoya kopyalandı' : 'Rapor özeti panoya kopyalandı');
-            },
+            onSelected: (v) => _export(v, store, report, range, expSlices, incSlices),
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 'summary', child: ListTile(leading: Icon(Icons.summarize_outlined), title: Text('Rapor özetini kopyala'))),
-              PopupMenuItem(value: 'csv', child: ListTile(leading: Icon(Icons.table_view_outlined), title: Text('İşlemleri CSV kopyala'))),
+              PopupMenuItem(
+                value: 'pdf',
+                child: ListTile(leading: Icon(Icons.picture_as_pdf_outlined), title: Text('PDF rapor paylaş / indir')),
+              ),
+              PopupMenuItem(
+                value: 'print',
+                child: ListTile(leading: Icon(Icons.print_outlined), title: Text('Yazdır / PDF önizle')),
+              ),
+              PopupMenuItem(
+                value: 'csvfile',
+                child: ListTile(leading: Icon(Icons.table_view_outlined), title: Text('İşlemleri CSV dosyası olarak paylaş')),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'summary',
+                child: ListTile(leading: Icon(Icons.summarize_outlined), title: Text('Rapor özetini kopyala')),
+              ),
+              PopupMenuItem(
+                value: 'csv',
+                child: ListTile(leading: Icon(Icons.copy_all_outlined), title: Text('İşlemleri CSV kopyala')),
+              ),
             ],
           ),
           const SizedBox(width: 4),
@@ -190,10 +206,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
     ),
   );
 
+  Future<void> _export(
+    String action,
+    FinanceStore store,
+    Report report,
+    DateTimeRange range,
+    List<(String, int)> exp,
+    List<(String, int)> inc,
+  ) async {
+    final period = '${ShareService.stamp(range.start)}_${ShareService.stamp(range.end)}';
+    try {
+      switch (action) {
+        case 'pdf':
+          final bytes = await PdfReports.financialReport(store: store, from: range.start, to: range.end);
+          await ShareService.sharePdf(bytes, 'finans-raporu_$period.pdf');
+        case 'print':
+          await ShareService.printPdf(
+            () => PdfReports.financialReport(store: store, from: range.start, to: range.end),
+            'Finansal Rapor $period',
+          );
+        case 'csvfile':
+          await ShareService.shareCsv(_txnCsv(store, range), 'islemler_$period.csv', subject: 'İşlemler $period');
+        case 'csv':
+          await Clipboard.setData(ClipboardData(text: _txnCsv(store, range)));
+          if (mounted) toast(context, 'İşlemler CSV olarak panoya kopyalandı');
+        case 'summary':
+          await Clipboard.setData(ClipboardData(text: _summaryText(store, report, range, exp, inc)));
+          if (mounted) toast(context, 'Rapor özeti panoya kopyalandı');
+      }
+    } catch (e) {
+      if (mounted) toast(context, 'Dışa aktarılamadı: $e');
+    }
+  }
+
   String _txnCsv(FinanceStore store, DateTimeRange r) {
     String m(int v) => (v / 100).toStringAsFixed(2).replaceAll('.', ',');
     String q(String s) => '"${s.replaceAll('"', '""')}"';
-    final b = StringBuffer('Tarih;Tür;Tutar;Hesap;Hedef hesap;Kategori;Cari;Açıklama\n');
+    final b = StringBuffer('Tarih;Tür;Tutar;Birim;Kur;TL karşılığı;Hesap;Hedef hesap;Kategori;Cari;Açıklama\n');
     final limit = dateOnly(r.end).add(const Duration(days: 1));
     for (final t in store.txns.reversed) {
       if (t.date.isBefore(dateOnly(r.start)) || !t.date.isBefore(limit)) continue;
@@ -201,6 +250,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
         fmtDate(t.date),
         switch (t.type) { TxnType.income => 'Gelir', TxnType.expense => 'Gider', TxnType.transfer => 'Transfer' },
         m(t.type == TxnType.expense ? -t.amount : t.amount),
+        t.currency,
+        t.currency == 'TRY' ? '' : t.rate.toStringAsFixed(4).replaceAll('.', ','),
+        m(t.type == TxnType.expense ? -t.tryAmount : t.tryAmount),
         q(store.account(t.accountId)?.name ?? ''),
         q(store.account(t.toAccountId)?.name ?? ''),
         q(store.category(t.categoryId)?.name ?? ''),
@@ -249,7 +301,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ..writeln()
       ..writeln('Hesap bakiyeleri');
     for (final a in store.activeAccounts) {
-      b.writeln('  ${a.name}: ${fmtMoney(store.balanceOf(a))}');
+      b.writeln('  ${a.name}: ${fmtMoney(store.balanceOf(a), currency: a.currency)}'
+          '${a.isForeign ? ' (≈ ${fmtMoney(store.tryBalanceOf(a))})' : ''}');
     }
     return b.toString();
   }
@@ -535,7 +588,7 @@ class _AccountsTable extends StatelessWidget {
     final store = context.watch<FinanceStore>();
     final scheme = Theme.of(context).colorScheme;
     final accounts = store.activeAccounts;
-    final total = totalBalance(accounts, store.txns, until: asOf);
+    final total = totalBalance(accounts, store.txns, until: asOf, rates: store.rates);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -559,8 +612,16 @@ class _AccountsTable extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     Expanded(child: Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    Money(accountBalance(a, store.txns, until: asOf),
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Money(accountBalance(a, store.txns, until: asOf),
+                            currency: a.currency, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        if (a.isForeign)
+                          TryHint(store.rates.toTry(accountBalance(a, store.txns, until: asOf), a.currency),
+                              fontSize: 11),
+                      ],
+                    ),
                   ],
                 ),
               ),

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../logic/currency.dart';
 import '../logic/finance_math.dart';
 import '../models/models.dart';
 import 'default_categories.dart';
@@ -15,6 +16,7 @@ String newId() => _uuid.v4();
 /// cihazda JSON olarak saklar ve dinleyicileri bilgilendirir.
 class FinanceStore extends ChangeNotifier {
   static const _storageKey = 'finance_data_v1';
+  static const _ratesKey = 'fx_rates_v1';
   static const schemaVersion = 1;
 
   FinanceStore([this._prefs]);
@@ -27,6 +29,16 @@ class FinanceStore extends ChangeNotifier {
   final List<Txn> _txns = [];
   final List<ContactEntry> _entries = [];
   final List<PlannedItem> _planned = [];
+  Rates _rates = Rates.fallback;
+
+  /// Güncel döviz kurları (RateService veya kullanıcı tarafından güncellenir).
+  Rates get rates => _rates;
+
+  void setRates(Rates r) {
+    _rates = r;
+    notifyListeners();
+    _prefs?.setString(_ratesKey, jsonEncode(r.toJson()));
+  }
 
   List<Account> get accounts => List.unmodifiable(_accounts);
   List<Account> get activeAccounts =>
@@ -71,8 +83,15 @@ class FinanceStore extends ChangeNotifier {
 
   // ---- Hesaplanan değerler -----------------------------------------------
 
+  /// Hesap bakiyesi, hesabın kendi para biriminde.
   int balanceOf(Account a) => accountBalance(a, _txns);
-  int get totalCash => totalBalance(_accounts, _txns);
+
+  /// Hesap bakiyesinin güncel kurla ₺ karşılığı.
+  int tryBalanceOf(Account a) => _rates.toTry(balanceOf(a), a.currency);
+  int get totalCash => totalBalance(_accounts, _txns, rates: _rates);
+
+  /// Planlı kalemin güncel kurla ₺ karşılığı.
+  int plannedTry(PlannedItem p) => _rates.toTry(p.amount, p.currency);
   int contactBalanceOf(Contact c) => contactBalance(c, _entries, _txns);
 
   /// Toplam alacak (carilerin bize borcu) ve toplam borç (bizim carilere borcumuz).
@@ -90,6 +109,12 @@ class FinanceStore extends ChangeNotifier {
 
   Future<void> load() async {
     _prefs ??= await SharedPreferences.getInstance();
+    final rawRates = _prefs!.getString(_ratesKey);
+    if (rawRates != null) {
+      try {
+        _rates = Rates.fromJson(jsonDecode(rawRates) as Map<String, Object?>);
+      } catch (_) {}
+    }
     final raw = _prefs!.getString(_storageKey);
     if (raw == null) {
       _categories
@@ -299,10 +324,13 @@ class FinanceStore extends ChangeNotifier {
     DateTime? date,
     int? amount,
   }) {
+    final currency = account(accountId)?.currency ?? p.currency;
     final txn = Txn(
       id: newId(),
       type: p.kind == PlannedKind.collection ? TxnType.income : TxnType.expense,
-      amount: amount ?? p.amount,
+      amount: amount ?? _rates.convert(p.amount, p.currency, currency),
+      currency: currency,
+      rate: _rates.of(currency),
       date: date ?? DateTime.now(),
       accountId: accountId,
       categoryId: p.categoryId,

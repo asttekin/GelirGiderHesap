@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/finance_store.dart';
+import '../../logic/currency.dart';
 import '../../logic/finance_math.dart';
 import '../../models/models.dart';
 import '../category_icons.dart';
@@ -35,6 +36,11 @@ class _TxnFormPageState extends State<TxnFormPage> {
   late TxnType _type;
   late final TextEditingController _amount;
   late final TextEditingController _note;
+  late final TextEditingController _rate;
+  late final TextEditingController _toAmount;
+
+  /// Kullanıcı karşı tutarı elle değiştirdiyse otomatik hesaplama durur.
+  bool _toEdited = false;
   late DateTime _date;
   String? _accountId;
   String? _toAccountId;
@@ -55,12 +61,52 @@ class _TxnFormPageState extends State<TxnFormPage> {
     _toAccountId = e?.toAccountId;
     _categoryId = e?.categoryId;
     _contactId = e?.contactId ?? widget.contactId;
+    final cur = store.account(_accountId)?.currency ?? 'TRY';
+    _rate = TextEditingController(
+      text: fmtRate(e != null && e.currency != 'TRY' ? e.rate : store.rates.of(cur)),
+    );
+    _toAmount = TextEditingController(text: e?.toAmount == null ? '' : fmtAmountInput(e!.toAmount!));
+    _toEdited = e?.toAmount != null;
+    _amount.addListener(_recalc);
+    _rate.addListener(_recalc);
+  }
+
+  String _currencyOf(String? accountId) =>
+      context.read<FinanceStore>().account(accountId)?.currency ?? 'TRY';
+
+  String get _cur => _currencyOf(_accountId);
+  String get _toCur => _currencyOf(_toAccountId);
+  bool get _crossCurrency => _type == TxnType.transfer && _toAccountId != null && _cur != _toCur;
+
+  /// Girilen kur (yoksa güncel kur).
+  double get _enteredRate =>
+      _cur == 'TRY' ? 1 : (parseRate(_rate.text) ?? context.read<FinanceStore>().rates.of(_cur));
+
+  /// Hesap seçimi veya tutar değişince kur / karşı tutar alanlarını günceller.
+  void _recalc() {
+    if (!mounted) return;
+    final rates = context.read<FinanceStore>().rates;
+    if (_crossCurrency && !_toEdited) {
+      final a = parseAmount(_amount.text);
+      final tryValue = a == null ? null : (a * _enteredRate).round();
+      final text = tryValue == null ? '' : fmtAmountInput(rates.fromTry(tryValue, _toCur));
+      if (_toAmount.text != text) _toAmount.text = text;
+    }
+    setState(() {});
+  }
+
+  void _onAccountChanged() {
+    final rates = context.read<FinanceStore>().rates;
+    _rate.text = fmtRate(rates.of(_cur));
+    _recalc();
   }
 
   @override
   void dispose() {
     _amount.dispose();
     _note.dispose();
+    _rate.dispose();
+    _toAmount.dispose();
     super.dispose();
   }
 
@@ -81,6 +127,9 @@ class _TxnFormPageState extends State<TxnFormPage> {
         contactId: _type == TxnType.transfer ? null : _contactId,
         note: _note.text.trim(),
         plannedId: e?.plannedId,
+        currency: _cur,
+        rate: _enteredRate,
+        toAmount: _crossCurrency ? parseAmount(_toAmount.text) : null,
       ),
     );
     toast(context, e == null ? 'İşlem eklendi' : 'İşlem güncellendi');
@@ -146,26 +195,52 @@ class _TxnFormPageState extends State<TxnFormPage> {
             }
           }),
         ),
-        AmountField(controller: _amount, autofocus: widget.existing == null, color: color),
+        AmountField(controller: _amount, autofocus: widget.existing == null, color: color, currency: _cur),
         DateField(label: 'Tarih', value: _date, onChanged: (d) => setState(() => _date = d)),
         PickField<String>(
           label: _type == TxnType.transfer ? 'Çıkış hesabı' : 'Hesap',
           icon: Icons.account_balance_wallet_outlined,
           value: _accountId,
           items: [for (final a in accounts) (a.id, a.name)],
-          onChanged: (v) => setState(() => _accountId = v),
+          onChanged: (v) {
+            _accountId = v;
+            _onAccountChanged();
+          },
           validator: (v) => v == null ? 'Hesap seçin' : null,
         ),
+        if (_cur != 'TRY')
+          _RateRow(
+            controller: _rate,
+            currency: _cur,
+            amount: parseAmount(_amount.text),
+            onUseCurrent: () => _rate.text = fmtRate(store.rates.of(_cur)),
+          ),
         if (_type == TxnType.transfer)
           PickField<String>(
             label: 'Giriş hesabı',
             icon: Icons.login,
             value: _toAccountId,
             items: [for (final a in accounts) if (a.id != _accountId) (a.id, a.name)],
-            onChanged: (v) => setState(() => _toAccountId = v),
+            onChanged: (v) {
+              _toAccountId = v;
+              _toEdited = false;
+              _recalc();
+            },
             validator: (v) => v == null
                 ? 'Hedef hesap seçin'
                 : (v == _accountId ? 'Aynı hesaba transfer yapılamaz' : null),
+          ),
+        if (_crossCurrency)
+          Focus(
+            onFocusChange: (f) {
+              if (f) _toEdited = true;
+            },
+            child: AmountField(
+              controller: _toAmount,
+              label: 'Giriş hesabına geçen tutar (${currencySymbol(_toCur)})',
+              currency: _toCur,
+              color: color,
+            ),
           ),
         if (_type != TxnType.transfer) ...[
           Text('Kategori', style: Theme.of(context).textTheme.labelLarge),
@@ -202,6 +277,57 @@ class _TxnFormPageState extends State<TxnFormPage> {
                 : 'Bu ödeme cariye olan borcunuzdan düşülecek.',
             style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
+      ],
+    );
+  }
+}
+
+/// Döviz işleminde kur girişi ve ₺ karşılığı.
+class _RateRow extends StatelessWidget {
+  const _RateRow({
+    required this.controller,
+    required this.currency,
+    required this.amount,
+    required this.onUseCurrent,
+  });
+
+  final TextEditingController controller;
+  final String currency;
+  final int? amount;
+  final VoidCallback onUseCurrent;
+
+  @override
+  Widget build(BuildContext context) {
+    final rates = context.watch<FinanceStore>().rates;
+    final r = parseRate(controller.text);
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Kur (1 $currency = ? ₺)',
+            prefixIcon: const Icon(Icons.currency_exchange),
+            suffixIcon: IconButton(
+              tooltip: 'Güncel kuru kullan',
+              icon: const Icon(Icons.refresh),
+              onPressed: onUseCurrent,
+            ),
+          ),
+          validator: (v) => parseRate(v ?? '') == null ? 'Geçerli bir kur girin' : null,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+          child: Text(
+            [
+              if (amount != null && r != null) '≈ ${fmtMoney((amount! * r).round())}',
+              'Güncel: ${fmtRate(rates.of(currency))} ₺ · ${rates.source}',
+            ].join('   ·   '),
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ),
       ],
     );
   }

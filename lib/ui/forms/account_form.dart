@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/finance_store.dart';
+import '../../logic/currency.dart';
 import '../../logic/finance_math.dart';
 import '../../models/models.dart';
 import '../category_icons.dart';
@@ -27,6 +28,7 @@ class _AccountFormPageState extends State<AccountFormPage> {
   late AccountType _type;
   late int _color;
   late bool _archived;
+  late String _currency;
 
   @override
   void initState() {
@@ -39,6 +41,7 @@ class _AccountFormPageState extends State<AccountFormPage> {
     _type = e?.type ?? AccountType.bank;
     _color = e?.colorValue ?? pickerColors.first;
     _archived = e?.archived ?? false;
+    _currency = e?.currency ?? 'TRY';
   }
 
   @override
@@ -62,6 +65,7 @@ class _AccountFormPageState extends State<AccountFormPage> {
       openingBalance: parseAmount(_opening.text) ?? 0,
       colorValue: _color,
       archived: _archived,
+      currency: _currency,
     );
     context.read<FinanceStore>().upsertAccount(a);
     toast(context, e == null ? 'Hesap eklendi' : 'Hesap güncellendi');
@@ -125,7 +129,34 @@ class _AccountFormPageState extends State<AccountFormPage> {
               return RegExp(r'^[A-Za-z]{2}\d{2}[A-Za-z0-9]{10,30}$').hasMatch(s) ? null : 'IBAN biçimi geçersiz';
             },
           ),
+        Builder(builder: (context) {
+          final store = context.read<FinanceStore>();
+          final e = widget.existing;
+          final locked = e != null && store.txns.any((t) => t.accountId == e.id || t.toAccountId == e.id);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SegmentedButton<String>(
+                segments: [
+                  for (final c in currencyCodes)
+                    ButtonSegment(value: c, label: Text('${currencySymbol(c)} $c')),
+                ],
+                selected: {_currency},
+                onSelectionChanged: locked ? null : (v) => setState(() => _currency = v.first),
+              ),
+              if (locked)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'İşlemi olan hesabın para birimi değiştirilemez.',
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ),
+            ],
+          );
+        }),
         AmountField(
+          currency: _currency,
           controller: _opening,
           label: _type == AccountType.creditCard ? 'Açılış bakiyesi (borç için eksi)' : 'Açılış bakiyesi',
           allowNegative: true,

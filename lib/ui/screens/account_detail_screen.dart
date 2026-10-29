@@ -86,8 +86,13 @@ class AccountDetailScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   const Text('Güncel bakiye', style: TextStyle(color: Colors.white70)),
-                  Money(balance, color: Colors.white,
+                  Money(balance, currency: a.currency, color: Colors.white,
                       style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
+                  if (a.isForeign)
+                    Text(
+                      '≈ ${fmtMoney(store.tryBalanceOf(a))} · 1 ${a.currency} = ${fmtRate(store.rates.of(a.currency))} ₺',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
                   if (a.iban.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     InkWell(
@@ -113,9 +118,9 @@ class AccountDetailScreen extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: _stat(context, 'Bu ay giriş', mIn, fc.income)),
+                Expanded(child: _stat(context, 'Bu ay giriş', mIn, fc.income, a.currency)),
                 const SizedBox(width: 12),
-                Expanded(child: _stat(context, 'Bu ay çıkış', mOut, fc.expense)),
+                Expanded(child: _stat(context, 'Bu ay çıkış', mOut, fc.expense, a.currency)),
               ],
             ),
             const SectionHeader('Hesap hareketleri'),
@@ -137,14 +142,14 @@ class AccountDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _stat(BuildContext context, String label, int v, Color c) => Card(
+  Widget _stat(BuildContext context, String label, int v, Color c, String currency) => Card(
     child: Padding(
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          Money(v, color: c, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+          Money(v, currency: currency, color: c, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
         ],
       ),
     ),

@@ -5,6 +5,7 @@
 library;
 
 import '../models/models.dart';
+import 'currency.dart';
 
 DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -33,7 +34,7 @@ DateTime nextOccurrence(DateTime d, Recurrence r) => occurrenceAt(d, r, 1);
 // Bakiyeler
 // ---------------------------------------------------------------------------
 
-/// Bir işlemin [accountId] hesabının bakiyesine etkisi (kuruş).
+/// Bir işlemin [accountId] hesabının bakiyesine etkisi (hesabın biriminde).
 int txnEffectOn(Txn t, String accountId) {
   switch (t.type) {
     case TxnType.income:
@@ -43,12 +44,13 @@ int txnEffectOn(Txn t, String accountId) {
     case TxnType.transfer:
       var e = 0;
       if (t.accountId == accountId) e -= t.amount;
-      if (t.toAccountId == accountId) e += t.amount;
+      if (t.toAccountId == accountId) e += t.toAmount ?? t.amount;
       return e;
   }
 }
 
-/// Hesap bakiyesi. [until] verilirse o günün sonuna kadarki işlemler sayılır.
+/// Hesap bakiyesi (hesabın kendi biriminde). [until] verilirse o günün
+/// sonuna kadarki işlemler sayılır.
 int accountBalance(Account a, Iterable<Txn> txns, {DateTime? until}) {
   final limit = until == null ? null : dateOnly(until).add(const Duration(days: 1));
   var b = a.openingBalance;
@@ -59,20 +61,27 @@ int accountBalance(Account a, Iterable<Txn> txns, {DateTime? until}) {
   return b;
 }
 
-/// Tüm (arşivlenmemiş) hesapların toplam bakiyesi.
-int totalBalance(Iterable<Account> accounts, Iterable<Txn> txns, {DateTime? until}) {
+/// Tüm (arşivlenmemiş) hesapların ₺ cinsinden toplam bakiyesi. Döviz
+/// hesapları [rates] (güncel kur) ile çevrilir.
+int totalBalance(
+  Iterable<Account> accounts,
+  Iterable<Txn> txns, {
+  DateTime? until,
+  Rates rates = Rates.fallback,
+}) {
   var sum = 0;
   for (final a in accounts) {
     if (a.archived) continue;
-    sum += accountBalance(a, txns, until: until);
+    sum += rates.toTry(accountBalance(a, txns, until: until), a.currency);
   }
   return sum;
 }
 
-/// Cari bakiyesi. Pozitif: cari bize borçlu (alacak), negatif: biz borçluyuz.
+/// Cari bakiyesi (₺). Pozitif: cari bize borçlu (alacak), negatif: biz borçluyuz.
 ///
 /// Satış faturası alacağı artırır, alış faturası azaltır. Cariden gelen
 /// tahsilat (gelir) alacağı kapatır, cariye yapılan ödeme (gider) borcu kapatır.
+/// Döviz hesabından yapılan işlemler işlem anındaki kurla ₺'ye çevrilir.
 int contactBalance(Contact c, Iterable<ContactEntry> entries, Iterable<Txn> txns) {
   var b = c.openingBalance;
   for (final e in entries) {
@@ -81,8 +90,8 @@ int contactBalance(Contact c, Iterable<ContactEntry> entries, Iterable<Txn> txns
   }
   for (final t in txns) {
     if (t.contactId != c.id) continue;
-    if (t.type == TxnType.income) b -= t.amount;
-    if (t.type == TxnType.expense) b += t.amount;
+    if (t.type == TxnType.income) b -= t.tryAmount;
+    if (t.type == TxnType.expense) b += t.tryAmount;
   }
   return b;
 }
@@ -123,10 +132,15 @@ List<StatementLine> contactStatement(
     );
   }
   for (final t in txns.where((t) => t.contactId == c.id)) {
+    var desc = t.note.isNotEmpty ? t.note : (t.type == TxnType.income ? 'Tahsilat' : 'Ödeme');
+    if (t.currency != 'TRY') {
+      final fx = (t.amount / 100).toStringAsFixed(2).replaceAll('.', ',');
+      desc += ' ($fx ${t.currency} × ${t.rate.toStringAsFixed(4).replaceAll('.', ',')})';
+    }
     if (t.type == TxnType.income) {
-      rows.add((t.date, t.note.isNotEmpty ? t.note : 'Tahsilat', 0, t.amount, t));
+      rows.add((t.date, desc, 0, t.tryAmount, t));
     } else if (t.type == TxnType.expense) {
-      rows.add((t.date, t.note.isNotEmpty ? t.note : 'Ödeme', t.amount, 0, t));
+      rows.add((t.date, desc, t.tryAmount, 0, t));
     }
   }
   rows.sort((a, b) => a.$1.compareTo(b.$1));
@@ -205,19 +219,21 @@ class CashPoint {
   const CashPoint(this.date, this.balance);
 }
 
-/// Bugünden itibaren [days] gün boyunca günlük tahmini toplam bakiye.
+/// Bugünden itibaren [days] gün boyunca günlük tahmini toplam bakiye (₺).
+/// Döviz cinsinden planlı kalemler [rates] ile çevrilir.
 List<CashPoint> projectCashFlow({
   required int startBalance,
   required Iterable<PlannedItem> planned,
   required DateTime today,
   int days = 90,
+  Rates rates = Rates.fallback,
 }) {
   final start = dateOnly(today);
   final end = start.add(Duration(days: days));
   final delta = <DateTime, int>{};
   for (final p in planned) {
     for (final d in occurrencesBetween(p, start, end)) {
-      delta[d] = (delta[d] ?? 0) + p.signedAmount;
+      delta[d] = (delta[d] ?? 0) + rates.toTry(p.signedAmount, p.currency);
     }
   }
   var bal = startBalance;
@@ -286,18 +302,19 @@ Report buildReport(Iterable<Txn> txns, DateTime from, DateTime to) {
     if (!_inRange(t.date, from, to) || t.type == TxnType.transfer) continue;
     count++;
     final key = t.categoryId ?? '';
+    final v = t.tryAmount;
     if (t.type == TxnType.income) {
-      income += t.amount;
-      inc[key] = (inc[key] ?? 0) + t.amount;
+      income += v;
+      inc[key] = (inc[key] ?? 0) + v;
     } else {
-      expense += t.amount;
-      exp[key] = (exp[key] ?? 0) + t.amount;
+      expense += v;
+      exp[key] = (exp[key] ?? 0) + v;
     }
     if (t.contactId != null) {
       final cur = byContact[t.contactId!] ?? (0, 0);
       byContact[t.contactId!] = t.type == TxnType.income
-          ? (cur.$1 + t.amount, cur.$2)
-          : (cur.$1, cur.$2 + t.amount);
+          ? (cur.$1 + v, cur.$2)
+          : (cur.$1, cur.$2 + v);
     }
   }
   return Report(
@@ -321,9 +338,9 @@ List<MonthBucket> monthlyBuckets(Iterable<Txn> txns, DateTime endMonth, int mont
     final idx = (t.date.year - first.year) * 12 + (t.date.month - first.month);
     if (idx < 0 || idx >= months) continue;
     if (t.type == TxnType.income) {
-      inc[idx] += t.amount;
+      inc[idx] += t.tryAmount;
     } else {
-      exp[idx] += t.amount;
+      exp[idx] += t.tryAmount;
     }
   }
   return [
@@ -331,24 +348,26 @@ List<MonthBucket> monthlyBuckets(Iterable<Txn> txns, DateTime endMonth, int mont
   ];
 }
 
-/// [from]–[to] arasında gün sonu toplam bakiyeleri (gerçekleşen işlemlerden).
+/// [from]–[to] arasında gün sonu toplam bakiyeleri (₺, gerçekleşen
+/// işlemlerden). Döviz hesapları güncel kurla [rates] çevrilir.
 List<CashPoint> historicalBalance(
   Iterable<Account> accounts,
   Iterable<Txn> txns,
   DateTime from,
-  DateTime to,
-) {
-  final ids = {for (final a in accounts) if (!a.archived) a.id};
+  DateTime to, {
+  Rates rates = Rates.fallback,
+}) {
+  final active = [for (final a in accounts) if (!a.archived) a];
   final start = dateOnly(from), end = dateOnly(to);
   var bal = 0;
-  for (final a in accounts) {
-    if (!a.archived) bal += a.openingBalance;
+  for (final a in active) {
+    bal += rates.toTry(a.openingBalance, a.currency);
   }
   final delta = <DateTime, int>{};
   for (final t in txns) {
     var e = 0;
-    for (final id in ids) {
-      e += txnEffectOn(t, id);
+    for (final a in active) {
+      e += rates.toTry(txnEffectOn(t, a.id), a.currency);
     }
     if (e == 0) continue;
     final d = dateOnly(t.date);

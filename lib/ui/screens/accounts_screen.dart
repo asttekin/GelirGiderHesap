@@ -110,10 +110,18 @@ class _BankAccountsState extends State<_BankAccounts> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        trailing: Money(
-                          store.balanceOf(a),
-                          colored: store.balanceOf(a) < 0,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Money(
+                              store.balanceOf(a),
+                              currency: a.currency,
+                              colored: store.balanceOf(a) < 0,
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
+                            if (a.isForeign) TryHint(store.tryBalanceOf(a)),
+                          ],
                         ),
                         onTap: () => pushPage(context, AccountDetailScreen(accountId: a.id)),
                       ),

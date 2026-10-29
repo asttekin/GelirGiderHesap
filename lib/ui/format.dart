@@ -3,19 +3,33 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_prefs.dart';
+import '../logic/currency.dart';
 import '../logic/finance_math.dart';
 import 'theme.dart';
 
-final _money = NumberFormat.currency(locale: 'tr_TR', symbol: '₺', decimalDigits: 2);
-final _moneyCompact = NumberFormat.compactCurrency(locale: 'tr_TR', symbol: '₺', decimalDigits: 1);
+final _money = {
+  for (final c in currencyCodes)
+    c: NumberFormat.currency(locale: 'tr_TR', symbol: currencySymbol(c), decimalDigits: 2),
+};
+final _moneyCompact = {
+  for (final c in currencyCodes)
+    c: NumberFormat.compactCurrency(locale: 'tr_TR', symbol: currencySymbol(c), decimalDigits: 1),
+};
 final _amountInput = NumberFormat.decimalPatternDigits(locale: 'tr_TR', decimalDigits: 2);
+final _rateFmt = NumberFormat.decimalPatternDigits(locale: 'tr_TR', decimalDigits: 4);
 
-/// Kuruş → "₺1.234,56". [signed] ise pozitif değerlerin önüne "+" konur.
-String fmtMoney(int kurus, {bool signed = false, bool compact = false}) {
+/// Kuruş → "₺1.234,56" ([currency] `USD` ise "$1.234,56").
+/// [signed] ise pozitif değerlerin önüne "+" konur.
+String fmtMoney(int kurus, {bool signed = false, bool compact = false, String currency = 'TRY'}) {
   final v = kurus / 100;
-  final s = compact && v.abs() >= 10000 ? _moneyCompact.format(v) : _money.format(v);
+  final s = compact && v.abs() >= 10000
+      ? (_moneyCompact[currency] ?? _moneyCompact['TRY']!).format(v)
+      : (_money[currency] ?? _money['TRY']!).format(v);
   return signed && kurus > 0 ? '+$s' : s;
 }
+
+/// Kur: 41.98765 → "41,9877".
+String fmtRate(double r) => _rateFmt.format(r);
 
 /// Yüzde: 12.5 → "%12,5", -3 → "−%3,0".
 String fmtPercent(double v) =>
@@ -53,9 +67,11 @@ class Money extends StatelessWidget {
     this.compact = false,
     this.color,
     this.textAlign,
+    this.currency = 'TRY',
   });
 
   final int kurus;
+  final String currency;
   final TextStyle? style;
   final bool colored;
   final bool signed;
@@ -72,7 +88,7 @@ class Money extends StatelessWidget {
             ? (kurus > 0 ? fc.income : (kurus < 0 ? fc.expense : null))
             : null);
     return Text(
-      hide ? '₺ ••••' : fmtMoney(kurus, signed: signed, compact: compact),
+      hide ? '${currencySymbol(currency)} ••••' : fmtMoney(kurus, signed: signed, compact: compact, currency: currency),
       style: (style ?? const TextStyle()).copyWith(
         color: c,
         fontFeatures: const [FontFeature.tabularFigures()],
@@ -80,6 +96,28 @@ class Money extends StatelessWidget {
       textAlign: textAlign,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+/// Döviz tutarının altında gösterilen "≈ ₺1.234,56" satırı.
+class TryHint extends StatelessWidget {
+  const TryHint(this.kurus, {super.key, this.fontSize = 12});
+  final int kurus;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final hide = context.select<AppPrefs, bool>((p) => p.hideAmounts);
+    return Text(
+      hide ? '≈ ₺ ••••' : '≈ ${fmtMoney(kurus)}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: fontSize,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
     );
   }
 }

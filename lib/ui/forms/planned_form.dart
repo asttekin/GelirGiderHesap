@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/finance_store.dart';
+import '../../logic/currency.dart';
 import '../../logic/finance_math.dart';
 import '../../models/models.dart';
 import '../category_icons.dart';
@@ -43,6 +44,7 @@ class _PlannedFormPageState extends State<PlannedFormPage> {
   String? _accountId;
   String? _categoryId;
   String? _contactId;
+  late String _currency;
 
   @override
   void initState() {
@@ -60,6 +62,7 @@ class _PlannedFormPageState extends State<PlannedFormPage> {
     _accountId = e?.accountId ?? (accounts.isEmpty ? null : accounts.first.id);
     _categoryId = e?.categoryId;
     _contactId = e?.contactId ?? widget.contactId;
+    _currency = e?.currency ?? context.read<FinanceStore>().account(_accountId)?.currency ?? 'TRY';
   }
 
   @override
@@ -87,6 +90,7 @@ class _PlannedFormPageState extends State<PlannedFormPage> {
         recurrence: _recurrence,
         endDate: _recurrence == Recurrence.none || _end == null ? null : dateOnly(_end!),
         completed: e?.completed ?? false,
+        currency: _currency,
       ),
     );
     toast(context, e == null ? 'Planlı kalem eklendi' : 'Planlı kalem güncellendi');
@@ -136,7 +140,29 @@ class _PlannedFormPageState extends State<PlannedFormPage> {
           decoration: const InputDecoration(labelText: 'Başlık', prefixIcon: Icon(Icons.title)),
           validator: (v) => (v ?? '').trim().isEmpty ? 'Başlık girin' : null,
         ),
-        AmountField(controller: _amount, color: isIn ? fc.income : fc.expense),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: AmountField(controller: _amount, color: isIn ? fc.income : fc.expense, currency: _currency),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 104,
+              child: PickField<String>(
+                label: 'Birim',
+                value: _currency,
+                items: [for (final c in currencyCodes) (c, '${currencySymbol(c)} $c')],
+                onChanged: (v) => setState(() => _currency = v ?? 'TRY'),
+              ),
+            ),
+          ],
+        ),
+        if (_currency != 'TRY')
+          Text(
+            '≈ ${fmtMoney(store.rates.toTry(parseAmount(_amount.text) ?? 0, _currency))} (güncel kurla)',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
         DateField(label: 'Vade tarihi', value: _due, onChanged: (d) => setState(() => _due = d)),
         PickField<Recurrence>(
           label: 'Tekrar',
@@ -158,8 +184,12 @@ class _PlannedFormPageState extends State<PlannedFormPage> {
           label: 'Hesap',
           icon: Icons.account_balance_wallet_outlined,
           value: _accountId,
-          items: [(null, '—'), for (final a in store.activeAccounts) (a.id, a.name)],
-          onChanged: (v) => setState(() => _accountId = v),
+          items: [(null, '—'), for (final a in store.activeAccounts) (a.id, '${a.name} (${a.currency})')],
+          onChanged: (v) => setState(() {
+            _accountId = v;
+            final c = store.account(v)?.currency;
+            if (c != null) _currency = c;
+          }),
         ),
         PickField<String?>(
           label: 'Kategori',
@@ -193,8 +223,14 @@ Future<void> showCompletePlanned(BuildContext context, PlannedItem item) async {
     toast(context, 'Önce bir hesap ekleyin');
     return;
   }
-  final amount = TextEditingController(text: fmtAmountInput(item.amount));
-  var accountId = accounts.any((a) => a.id == item.accountId) ? item.accountId! : accounts.first.id;
+  // Önce kalemin para birimindeki hesabı öner.
+  var accountId = accounts.any((a) => a.id == item.accountId)
+      ? item.accountId!
+      : (accounts.where((a) => a.currency == item.currency).firstOrNull ?? accounts.first).id;
+  String curOf(String id) => store.account(id)?.currency ?? 'TRY';
+  final amount = TextEditingController(
+    text: fmtAmountInput(store.rates.convert(item.amount, item.currency, curOf(accountId))),
+  );
   var date = DateTime.now();
   final formKey = GlobalKey<FormState>();
   final isIn = item.kind == PlannedKind.collection;
@@ -222,14 +258,26 @@ Future<void> showCompletePlanned(BuildContext context, PlannedItem item) async {
                   const SizedBox(height: 4),
                   Text(item.title, style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 16),
-                  AmountField(controller: amount),
+                  AmountField(controller: amount, currency: curOf(accountId)),
+                  if (curOf(accountId) != item.currency)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        'Planlanan: ${fmtMoney(item.amount, currency: item.currency)} — güncel kurla çevrildi',
+                        style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+                      ),
+                    ),
                   const SizedBox(height: 12),
                   PickField<String>(
                     label: isIn ? 'Paranın girdiği hesap' : 'Ödemenin yapıldığı hesap',
                     icon: Icons.account_balance_wallet_outlined,
                     value: accountId,
-                    items: [for (final a in accounts) (a.id, a.name)],
-                    onChanged: (v) => setState(() => accountId = v ?? accountId),
+                    items: [for (final a in accounts) (a.id, '${a.name} (${a.currency})')],
+                    onChanged: (v) => setState(() {
+                      accountId = v ?? accountId;
+                      amount.text =
+                          fmtAmountInput(store.rates.convert(item.amount, item.currency, curOf(accountId)));
+                    }),
                   ),
                   const SizedBox(height: 12),
                   DateField(label: 'İşlem tarihi', value: date, onChanged: (d) => setState(() => date = d)),

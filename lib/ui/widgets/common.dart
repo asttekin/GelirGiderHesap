@@ -175,8 +175,11 @@ class TxnTile extends StatelessWidget {
         final to = store.account(txn.toAccountId);
         title = txn.note.isNotEmpty ? txn.note : 'Transfer';
         signed = perspectiveAccountId == null ? 0 : txnEffectOn(txn, perspectiveAccountId!);
+        final incoming = perspectiveAccountId != null && perspectiveAccountId == txn.toAccountId;
         final sub = '${acc?.name ?? '?'} → ${to?.name ?? '?'}';
-        return _tile(context, icon, color, title, sub, signed, neutral: perspectiveAccountId == null);
+        return _tile(context, icon, color, title, sub, signed,
+            neutral: perspectiveAccountId == null,
+            currency: incoming ? (to?.currency ?? txn.currency) : txn.currency);
       case TxnType.income:
         icon = iconForCategory(cat);
         color = cat != null ? Color(cat.colorValue) : fc.income;
@@ -192,7 +195,7 @@ class TxnTile extends StatelessWidget {
       ?contact?.name,
       ?acc?.name,
     ];
-    return _tile(context, icon, color, title, parts.join(' · '), signed);
+    return _tile(context, icon, color, title, parts.join(' · '), signed, currency: txn.currency);
   }
 
   Widget _tile(
@@ -203,8 +206,10 @@ class TxnTile extends StatelessWidget {
     String subtitle,
     int signed, {
     bool neutral = false,
+    String currency = 'TRY',
   }) {
     final scheme = Theme.of(context).colorScheme;
+    const bold = TextStyle(fontWeight: FontWeight.w600);
     return ListTile(
       leading: IconBadge(icon, color),
       title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -219,9 +224,11 @@ class TxnTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           neutral
-              ? Money(txn.amount, style: const TextStyle(fontWeight: FontWeight.w600))
-              : Money(signed, colored: true, signed: true, style: const TextStyle(fontWeight: FontWeight.w600)),
-          if (showDate)
+              ? Money(txn.amount, currency: currency, style: bold)
+              : Money(signed, currency: currency, colored: true, signed: true, style: bold),
+          if (currency != 'TRY' && txn.type != TxnType.transfer)
+            TryHint(txn.tryAmount, fontSize: 11)
+          else if (showDate)
             Text(fmtDateShort(txn.date), style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
         ],
       ),
@@ -361,7 +368,7 @@ class PlannedTile extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Money(item.signedAmount, colored: true, signed: true,
+          Money(item.signedAmount, currency: item.currency, colored: true, signed: true,
               style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
           if (!item.completed) DueChip(due),
